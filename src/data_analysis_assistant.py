@@ -4,12 +4,12 @@ from src.agents.query_preprocessor_agent import check_if_query_is_related_to_dat
 from src.agents.sql_agent import SQLAgent
 from src.agents.llm_provider import OpenAILLMProvider
 from src.vis.data_formatter import DataFormatter
-from src.agents.sql_agent import SQLQueryState
+from src.schemas.sql_agent_state import SQLQueryState
 
 class DataAnalysisAssistant:
     """Agentic data analyst that converts natural language questions into analytics on tabular data."""
     
-    def __init__(self, project_uuid: str, upload_dir: str = "uploads", llm_provider: OpenAILLMProvider = None):
+    def __init__(self, project_uuid: str = None, upload_dir: str = "uploads", llm_provider: OpenAILLMProvider = None):
         self.project_uuid = project_uuid
         self.sqlite_handler = SQLiteHandler(upload_dir)
         self.llm_provider = llm_provider
@@ -37,10 +37,15 @@ class DataAnalysisAssistant:
         # Check if query is related to data analysis
         query_check = check_if_query_is_related_to_data(user_query=user_query, llm_provider=self.llm_provider)
         if query_check.ignore:
-            self.sql_agent.sql_query_state.ignore = True
-            self.sql_agent.sql_query_state.reason_for_ignoring = query_check.reason
-            self.sql_agent.sql_query_state.suggestion_for_fixing = "Please ask a question about the data, such as 'What are the average costs?' or 'Show me a chart of the distribution.'"
-            return self.sql_agent.sql_query_state
+            # Create a new SQLQueryState for ignored queries
+            ignored_state = SQLQueryState(
+                ignore=True,
+                reason_for_ignoring=query_check.reason,
+                suggestion_for_fixing="Please ask a question about the data, such as 'What are the average costs?' or 'Show me a chart of the distribution.'",
+                user_query=user_query,
+                output_response_to_user="I can only help with data analysis questions. Please ask about the data in your files."
+            )
+            return ignored_state
         
         # Preprocess the query for clarity
         if self.preprocess_query:
@@ -48,11 +53,6 @@ class DataAnalysisAssistant:
         else:
             preprocessed_query = user_query
         
-        # Store in conversation history
-        self.conversation_history.append({
-            "user_query": user_query,
-            "preprocessed_query": preprocessed_query
-        })
         
         # Use SQL agent to parse the question and identify relevant tables
         if self.sql_agent:
@@ -70,19 +70,36 @@ class DataAnalysisAssistant:
                 # step 6: choose the visualization type
                 self.sql_agent.choose_visualization_type()
 
+                # Store in conversation history
+                self.conversation_history.append({
+                    "user_query": user_query,
+                    "preprocessed_query": preprocessed_query,
+                    "sql_query_state": self.sql_agent.sql_query_state.model_dump()
+                })
+
                 return self.sql_agent.sql_query_state
             except Exception as e:
-                self.sql_agent.sql_query_state.ignore = True
-                self.sql_agent.sql_query_state.reason_for_ignoring = "Error in SQL agent"
-                self.sql_agent.sql_query_state.suggestion_for_fixing = "Please try again later."
-                self.sql_agent.sql_query_state.output_response_to_user = "Sorry, there was an error processing your question. Please try again later."
-                return self.sql_agent.sql_query_state
+                # Create error state
+                error_state = SQLQueryState(
+                    ignore=True,
+                    reason_for_ignoring="Error in SQL agent",
+                    suggestion_for_fixing="Please try again later.",
+                    user_query=user_query,
+                    preprocessed_query=preprocessed_query,
+                    output_response_to_user="Sorry, there was an error processing your question. Please try again later."
+                )
+                return error_state
         else:
-            self.sql_agent.sql_query_state.ignore = True
-            self.sql_agent.sql_query_state.reason_for_ignoring = "SQL agent not initialized. Please load data first."
-            self.sql_agent.sql_query_state.suggestion_for_fixing = "Please load data first."
-            self.sql_agent.sql_query_state.output_response_to_user = "Sorry, SQL agent not initialized. Please load data first."
-            return self.sql_agent.sql_query_state
+            # Create state for uninitialized SQL agent
+            uninitialized_state = SQLQueryState(
+                ignore=True,
+                reason_for_ignoring="SQL agent not initialized. Please load data first.",
+                suggestion_for_fixing="Please load data first.",
+                user_query=user_query,
+                preprocessed_query=preprocessed_query,
+                output_response_to_user="Sorry, SQL agent not initialized. Please load data first."
+            )
+            return uninitialized_state
     
     def get_conversation_history(self) -> list:
         """Get the conversation history."""

@@ -22,3 +22,8 @@ Summarization and output
 User sessions and reloading
 1. Save it in sessions so that user can reload the session
 2. User should be able to export the sessions as pdf or docx
+
+
+## Fixes required:
+1. Validate the generated sql query. Correct it if syntax error. Once fixed, retry it. Otherwise ignore.
+  Result: {'ignore': False, 'query': 'Show me the range of yearly therapy costs by additional benefit rating', 'status': 'error', 'error': 'SQL error: near "NOT_RELEVANT": syntax error', 'conversation_length': 1}
