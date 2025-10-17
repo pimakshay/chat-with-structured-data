@@ -8,6 +8,7 @@ dependencies = [
     "fastapi[standard]>=0.119.0",
     "ipykernel>=7.0.1",
     "langchain-openai>=0.3.35",
+    "matplotlib>=3.10.7",
     "pandas>=2.3.3",
     "pydantic>=2.12.2",
     "pysqlite3>=0.5.4",

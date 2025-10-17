@@ -4,6 +4,7 @@ from src.agents.query_preprocessor_agent import check_if_query_is_related_to_dat
 from src.agents.sql_agent import SQLAgent
 from src.agents.llm_provider import OpenAILLMProvider
 from src.vis.data_formatter import DataFormatter
+from src.vis.plotter import SimplePlotter
 from src.schemas.sql_agent_state import SQLQueryState
 
 class DataAnalysisAssistant:
@@ -17,6 +18,7 @@ class DataAnalysisAssistant:
         self.sql_agent = None
         self.preprocess_query = False
         self.data_formatter = DataFormatter(llm_provider=self.llm_provider)
+        self.plotter = SimplePlotter()
 
     def load_data(self, csv_file_paths: list[str], table_names: list[str] = None) -> str:
         """Load multiple CSV files into a single SQLite database."""
@@ -63,12 +65,16 @@ class DataAnalysisAssistant:
                 self.sql_agent.get_unique_nouns()
                 # step 3: generate the SQL query
                 self.sql_agent.generate_sql()
+                # validate the SQL query
                 # step 4: execute the query
                 self.sql_agent.execute_query()
                 # step 5: format the results
                 self.sql_agent.format_results()
                 # step 6: choose the visualization type
                 self.sql_agent.choose_visualization_type()
+
+                # step 7: create and save plot if visualization data is available
+                self._create_plot_if_needed(user_query)
 
                 # Store in conversation history
                 self.conversation_history.append({
@@ -100,6 +106,40 @@ class DataAnalysisAssistant:
                 output_response_to_user="Sorry, SQL agent not initialized. Please load data first."
             )
             return uninitialized_state
+    
+    def _create_plot_if_needed(self, user_query: str):
+        """Create and save a plot if visualization data is available."""
+        try:
+            if not self.sql_agent or not self.sql_agent.sql_query_state:
+                return
+            
+            state = self.sql_agent.sql_query_state
+            
+            # Check if we have visualization data
+            if (state.visualizationType and 
+                state.formatted_data_for_visualization and 
+                self.project_uuid):
+                
+                visualization_type = state.visualizationType.visualization
+                formatted_data = state.formatted_data_for_visualization
+                
+                # Create the plot
+                plot_path = self.plotter.create_plot(
+                    visualization_type=visualization_type,
+                    data=formatted_data,
+                    project_uuid=self.project_uuid,
+                    query=user_query
+                )
+                
+                if plot_path:
+                    print(f"Plot saved to: {plot_path}")
+                    # Optionally, you could add the plot path to the state
+                    # state.plot_path = plot_path
+                else:
+                    print("Failed to create plot")
+                    
+        except Exception as e:
+            print(f"Error creating plot: {e}")
     
     def get_conversation_history(self) -> list:
         """Get the conversation history."""
