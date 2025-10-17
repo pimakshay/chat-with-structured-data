@@ -6,6 +6,7 @@ from typing import List, Optional, Dict, Any
 from pathlib import Path
 
 from src.schemas.sql_query_model import QueryRequest, QueryResponse
+from src.data_handler.utils import table_exists
 
 UPLOAD_DIR = "uploads"
 
@@ -199,3 +200,48 @@ async def execute_query(request: QueryRequest):
     db_path = os.path.join(UPLOAD_DIR, f"{request.file_uuid}.sqlite")
     results = handler.execute_query(db_path, request.query)
     return {"results": results}
+
+def get_schema(db_path: str) -> str:
+    """Get the schema of the database with sample data."""
+    
+    # Check if the database file exists
+    if not os.path.exists(db_path):
+        raise FileNotFoundError(f"Database not found: {db_path}")
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+
+            # Get the table schema from sqlite_master
+            cursor.execute("SELECT name, sql FROM sqlite_master WHERE type='table';")
+            tables = cursor.fetchall()
+
+            schema_parts = []
+
+            # Process each table and fetch its schema and example rows
+            for table_name, create_statement in tables:
+                schema_parts.append(f"Table: {table_name}")
+                schema_parts.append(f"CREATE statement: {create_statement}")
+                
+                # Get column information
+                cursor.execute(f"PRAGMA table_info({table_name})")
+                columns_info = cursor.fetchall()
+                column_names = [col[1] for col in columns_info]
+                schema_parts.append(f"Columns: {', '.join(column_names)}")
+                schema_parts.append("")
+
+                # Fetch sample rows from the table
+                cursor.execute(f"SELECT * FROM '{table_name}' LIMIT 5;")
+                rows = cursor.fetchall()
+                if rows:
+                    schema_parts.append("Sample data:")
+                    # Add column headers
+                    schema_parts.append(f"Row: {', '.join(column_names)}")
+                    for i, row in enumerate(rows, 1):
+                        schema_parts.append(f"Row {i}: {', '.join(str(cell) for cell in row)}")
+                schema_parts.append("")  # Blank line between tables
+
+            return "\n".join(schema_parts)
+            
+    except sqlite3.Error as e:
+        raise RuntimeError(f"Error getting database schema: {e}")

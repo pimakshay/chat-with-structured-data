@@ -2,23 +2,29 @@ import os
 from src.agents.llm_provider import OpenAILLMProvider
 from src.schemas.sql_query_model import QueryCheckResponse
 
-llm_provider = OpenAILLMProvider(api_key=os.getenv("OPENAI_API_KEY"), model_name="gpt-4o-mini")
-
-def check_if_query_is_related_to_data(user_query: str) -> QueryCheckResponse:
+def check_if_query_is_related_to_data(user_query: str, llm_provider: OpenAILLMProvider) -> QueryCheckResponse:
     prompt = f"""You are a data analysis assistant. Check if the user's query is about data analysis, statistics, or insights from CSV data.
 
-Accept queries about:
-- Data analysis, statistics, trends, patterns
-- Charts, graphs, visualizations
-- Data filtering, grouping, aggregations
-- Comparisons, correlations, distributions
+ACCEPT queries about:
+- Data analysis, statistics, trends, patterns, averages, ranges, distributions
+- Charts, graphs, visualizations, pie charts, bar charts, scatter plots
+- Data filtering, grouping, aggregations, comparisons, correlations
+- Medical/pharmaceutical data analysis (drugs, treatments, costs, benefits, assessments)
+- Therapy costs, treatment costs, yearly costs, pricing analysis
+- Active substances, brand names, disease areas, therapeutic areas
+- Additional benefits, benefit ratings, comparative therapies
+- Product assessments, reassessments, evaluations
 - Export formats (CSV, Excel, PDF, DOCX)
 - Follow-up questions referencing previous analysis
+- Any question that asks for insights from tabular data
 
-Reject queries about:
+REJECT queries about:
 - General conversation, weather, personal topics
 - Non-data related questions
 - Technical support unrelated to data
+- Questions that don't involve analyzing data
+
+IMPORTANT: All questions about medical data, therapy costs, drug analysis, benefit ratings, and pharmaceutical information should be ACCEPTED as they are data analysis queries.
 
 User query: {user_query}"""
     
@@ -27,7 +33,7 @@ User query: {user_query}"""
     return response
 
 
-def preprocess_query(user_query: str) -> str:
+def preprocess_query(user_query: str, llm_provider: OpenAILLMProvider) -> str:
     prompt = f"""You are a data analysis assistant. Preprocess the user's query to be clear and actionable for data analysis.
 
 Tasks:

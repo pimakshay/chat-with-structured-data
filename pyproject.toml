@@ -10,4 +10,5 @@ dependencies = [
     "pandas>=2.3.3",
     "pydantic>=2.12.2",
     "pysqlite3>=0.5.4",
+    "python-dotenv>=1.1.1",
 ]

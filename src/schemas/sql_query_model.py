@@ -11,3 +11,13 @@ class QueryCheckResponse(BaseModel):
 
 class QueryResponse(BaseModel):
     results: list[list[Any]]
+
+
+class RelevantTable(BaseModel):
+    table_name: str
+    columns: list[str]
+    noun_columns: list[str]
+
+class QueryParseResponse(BaseModel):
+    is_relevant: bool
+    relevant_tables: list[RelevantTable]
