@@ -2,17 +2,25 @@ import os
 from src.agents.llm_provider import OpenAILLMProvider
 from langchain_core.prompts import ChatPromptTemplate
 from src.data_handler.sqlite_handler import get_schema, SQLiteHandler
-from src.schemas.sql_query_model import QueryParseResponse
+from src.schemas.sql_query_model import QueryParseResponse, VisualizationTypeResponse
+from src.schemas.sql_agent_state import SQLQueryState
+
+from src.vis.data_formatter import DataFormatter
 
 class SQLAgent:
     def __init__(self, db_path: str, sqlite_handler: SQLiteHandler = None, llm_provider: OpenAILLMProvider = None):
         self.sqlite_handler = sqlite_handler
         self.llm_provider = llm_provider
         self.db_path = db_path
+        self.sql_query_state = SQLQueryState()
+        self.data_formatter = DataFormatter(llm_provider=self.llm_provider)
+
 
     def parse_question(self, question: str) -> QueryParseResponse:
         """Parse user question and identify relevant tables and columns."""
         
+        self.sql_query_state.user_query = question
+
         # Get the database schema
         schema = get_schema(self.db_path)
 
@@ -46,16 +54,17 @@ class SQLAgent:
         # Get structured output
         response = self.llm_provider.with_structured_output(QueryParseResponse)
         result = response.invoke(formatted_prompt)
+        self.sql_query_state.query_parse_response = result
         return result
 
-    def get_unique_nouns(self, parsed_question: QueryParseResponse) -> dict:
+    def get_unique_nouns(self) -> dict:
         """Find unique nouns in relevant tables and columns."""
 
-        if not parsed_question.is_relevant:
+        if not self.sql_query_state.query_parse_response.is_relevant:
             return {"unique_nouns": []}
 
         unique_nouns = set()
-        for table_info in parsed_question.relevant_tables:
+        for table_info in self.sql_query_state.query_parse_response.relevant_tables:
             table_name = table_info.table_name
             noun_columns = table_info.noun_columns
             
@@ -68,9 +77,12 @@ class SQLAgent:
 
         return {"unique_nouns": list(unique_nouns)}
 
-    def generate_sql(self, question: str, parsed_question: QueryParseResponse, unique_nouns: list) -> dict:
+    def generate_sql(self) -> dict:
         """Generate SQL query based on parsed question and unique nouns."""
 
+        question = self.sql_query_state.user_query
+        parsed_question = self.sql_query_state.query_parse_response
+        unique_nouns = self.sql_query_state.unique_nouns
         schema = get_schema(self.db_path)
 
         prompt = ChatPromptTemplate.from_messages([
@@ -124,24 +136,46 @@ Generate SQL query string'''),
         response = self.llm_provider.invoke(formatted_prompt)
         
         if response.strip() == "NOT_ENOUGH_INFO":
-            return {"sql_query": "NOT_RELEVANT"}
+            self.sql_query_state.ignore = True
+            self.sql_query_state.reason_for_ignoring = "There is not enough information to write a SQL query"
+            self.sql_query_state.suggestion_for_fixing = "Please provide more information to generate a SQL query."
+            self.sql_query_state.generated_sql_query = "NOT_RELEVANT"
+            return self.sql_query_state
         else:
-            return {"sql_query": response}
+            self.sql_query_state.ignore = False
+            self.sql_query_state.generated_sql_query = response
+            return self.sql_query_state
 
 
     def validate_and_format_sql(self, sql_query: str) -> str:
         """Validate and format the SQL query."""
         pass
 
-    def execute_query(self, query: str) -> list:
+    def execute_query(self) -> list:
         """Execute a SQL query on the database."""
-        return self.sqlite_handler.execute_query(self.db_path, query)
+        query = self.sql_query_state.generated_sql_query
+        if query == "NOT_RELEVANT":
+            self.sql_query_state.ignore = True
+            self.sql_query_state.reason_for_ignoring = "There is not enough information to write a SQL query"
+            self.sql_query_state.suggestion_for_fixing = "Please provide more information to generate a SQL query."
+            self.sql_query_state.generated_sql_query = "NOT_RELEVANT"
+            self.sql_query_state.results = "NOT_RELEVANT"
+            return self.sql_query_state
+        else:
+            self.sql_query_state.ignore = False
+            self.sql_query_state.results = self.sqlite_handler.execute_query(self.db_path, query)
+            return self.sql_query_state
 
-    def format_results(self, question: str, results: list) -> dict:
+    def format_results(self) -> dict:
         """Format query results into a human-readable response."""
-
+        question = self.sql_query_state.user_query
+        results = self.sql_query_state.results
         if results == "NOT_RELEVANT":
-            return {"answer": "Sorry, I can only give answers relevant to the database."}
+            self.sql_query_state.ignore = True
+            self.sql_query_state.reason_for_ignoring = "There is not enough information to answer the question"
+            self.sql_query_state.suggestion_for_fixing = "Please provide more information to answer the question."
+            self.sql_query_state.output_response_to_user = "Sorry, not enough information to answer the question."
+            return self.sql_query_state
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", "You are an AI assistant that formats database query results into a human-readable response. Give a conclusion to the user's question based on the query results. Do not give the answer in markdown format. Only give the answer in one line."),
@@ -150,11 +184,14 @@ Generate SQL query string'''),
 
         formatted_prompt = prompt.format(question=question, results=results)
         response = self.llm_provider.invoke(formatted_prompt)
-        return {"answer": response}
+        self.sql_query_state.output_response_to_user = response
+        return self.sql_query_state
 
-    def choose_visualization_type(self, question: str, results: list, sql_query: str) -> str:
+    def choose_visualization_type(self) -> dict:
         """Choose the visualization type based on the user's question and query results."""
-
+        question = self.sql_query_state.user_query
+        results = self.sql_query_state.results
+        sql_query = self.sql_query_state.generated_sql_query
         if results == "NOT_RELEVANT":
             return {"visualization": "none", "visualization_reasoning": "No visualization needed for irrelevant questions."}
 
@@ -187,5 +224,20 @@ Recommend a visualization:'''),
         ])
 
         formatted_prompt = prompt.format(question=question, sql_query=sql_query, results=results)
-        response = self.llm_provider.invoke(formatted_prompt)
-        return {"visualization": response}
+        response = self.llm_provider.with_structured_output(VisualizationTypeResponse)
+        result = response.invoke(formatted_prompt)
+        self.sql_query_state.visualizationType = result
+        if result.visualization == "none":
+            return self.sql_query_state
+        else:
+            self.sql_query_state.formatted_data_for_visualization = self.format_data_for_visualization()
+            return self.sql_query_state
+
+
+    def format_data_for_visualization(self) -> dict:
+        """Format the data for visualization."""
+        question = self.sql_query_state.user_query
+        results = self.sql_query_state.results
+        sql_query = self.sql_query_state.generated_sql_query
+        visualization = self.sql_query_state.visualizationType
+        return self.data_formatter.format_data_for_visualization(question=question, results=results, sql_query=sql_query, visualization=visualization)

@@ -2,39 +2,39 @@ import json
 from langchain_core.prompts import ChatPromptTemplate
 from src.agents.llm_provider import OpenAILLMProvider
 from src.vis.graph_instructions import graph_instructions
+from src.schemas.sql_query_model import VisualizationTypeResponse
 
 class DataFormatter:
     def __init__(self, llm_provider: OpenAILLMProvider):
         self.llm_provider = llm_provider
 
     
-    def format_data_for_visualization(self, question: str, results: list, sql_query: str, visualization: str) -> dict:
+    def format_data_for_visualization(self, question: str, results: list, sql_query: str, visualization: VisualizationTypeResponse) -> dict:
         """Format the data for the chosen visualization type."""
 
-        visualization = visualization.strip('*')
-
-        if visualization == "none":
+        visualization_type = visualization.visualization
+        if visualization_type == "none":
             return {"formatted_data_for_visualization": None}
         
-        if visualization == "scatter":
+        if visualization_type == "scatter":
             try:
                 return self._format_scatter_data(results)
             except Exception as e:
-                return self._format_other_visualizations(visualization, question, sql_query, results)
+                return self._format_other_visualizations(visualization_type, question, sql_query, results)
         
-        if visualization == "bar" or visualization == "horizontal_bar":
+        if visualization_type == "bar" or visualization_type == "horizontal_bar":
             try:
                 return self._format_bar_data(results, question)
             except Exception as e:
-                return self._format_other_visualizations(visualization, question, sql_query, results)
+                return self._format_other_visualizations(visualization_type, question, sql_query, results)
         
-        if visualization == "line":
+        if visualization_type == "line":
             try:
                 return self._format_line_data(results, question)
             except Exception as e:
-                return self._format_other_visualizations(visualization, question, sql_query, results)
+                return self._format_other_visualizations(visualization_type, question, sql_query, results)
         
-        return self._format_other_visualizations(visualization, question, sql_query, results)
+        return self._format_other_visualizations(visualization_type, question, sql_query, results)
 
     def _format_line_data(self, results, question):
         if isinstance(results, str):
@@ -50,7 +50,9 @@ class DataFormatter:
                 ("system", "You are a data labeling expert. Given a question and some data, provide a concise and relevant label for the data series."),
                 ("human", "Question: {question}\n Data (first few rows): {data}\n\nProvide a concise label for this y axis. For example, if the data is the sales figures over time, the label could be 'Sales'. If the data is the population growth, the label could be 'Population'. If the data is the revenue trend, the label could be 'Revenue'."),
             ])
-            label = self.llm_manager.invoke(prompt, question=question, data=str(results[:2]))
+            formatted_prompt = prompt.format(question=question, data=str(results[:2]))
+            response = self.llm_provider.invoke(formatted_prompt)
+            label = response.strip()
 
             formatted_data = {
                 "xValues": x_values,
@@ -116,7 +118,9 @@ class DataFormatter:
                 ("system", "You are a data labeling expert. Given a question and some data, provide a concise and relevant label for the y-axis."),
                 ("human", "Question: {question}\n Data (first few rows): {data}\n\nProvide a concise label for the y-axis. For example, if the data represents sales figures over time for different categories, the label could be 'Sales'. If it's about population growth for different groups, it could be 'Population'."),
             ])
-            y_axis_label = self.llm_manager.invoke(prompt, question=question, data=str(results[:2]))
+            formatted_prompt = prompt.format(question=question, data=str(results[:2]))
+            response = self.llm_provider.invoke(formatted_prompt)
+            y_axis_label = response.strip()
 
             # Add the y-axis label to the formatted data
             formatted_data["yAxisLabel"] = y_axis_label.strip()
@@ -174,7 +178,9 @@ class DataFormatter:
                 ("system", "You are a data labeling expert. Given a question and some data, provide a concise and relevant label for the data series."),
                 ("human", "Question: {question}\nData (first few rows): {data}\n\nProvide a concise label for this y axis. For example, if the data is the sales figures for products, the label could be 'Sales'. If the data is the population of cities, the label could be 'Population'. If the data is the revenue by region, the label could be 'Revenue'."),
             ])
-            label = self.llm_manager.invoke(prompt, question=question, data=str(results[:2]))
+            formatted_prompt = prompt.format(question=question, data=str(results[:2]))
+            response = self.llm_provider.invoke(formatted_prompt)
+            label = response.strip()
             
             values = [{"data": data, "label": label}]
         elif len(results[0]) == 3:
@@ -196,13 +202,14 @@ class DataFormatter:
 
         return {"formatted_data_for_visualization": formatted_data}
 
-    def _format_other_visualizations(self, visualization, question, sql_query, results):
-        instructions = graph_instructions[visualization]
+    def _format_other_visualizations(self, visualization_type, question, sql_query, results):
+        instructions = graph_instructions[visualization_type]
         prompt = ChatPromptTemplate.from_messages([
             ("system", "You are a Data expert who formats data according to the required needs. You are given the question asked by the user, it's sql query, the result of the query and the format you need to format it in."),
             ("human", 'For the given question: {question}\n\nSQL query: {sql_query}\n\Result: {results}\n\nUse the following example to structure the data: {instructions}. Just give the json string. Do not format it'),
         ])
-        response = self.llm_manager.invoke(prompt, question=question, sql_query=sql_query, results=results, instructions=instructions, response_format={"type": "json_object"})
+        formatted_prompt = prompt.format(question=question, sql_query=sql_query, results=results, instructions=instructions)
+        response = self.llm_provider.invoke(formatted_prompt)
             
         try:
             formatted_data_for_visualization = json.loads(response)

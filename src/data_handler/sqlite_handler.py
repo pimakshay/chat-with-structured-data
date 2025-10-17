@@ -72,31 +72,7 @@ class SQLiteHandler:
             sanitized = f"table_{sanitized}"
         return sanitized or "unnamed_table"
     
-    def convert_single_file_to_sqlite(self, file_path: str, table_name: Optional[str] = None) -> str:
-        """Convert a single file to SQLite database."""
-        # Generate UUID for the database file
-        file_uuid = str(uuid.uuid4())
-        db_path = os.path.join(self.upload_dir, f"{file_uuid}.sqlite")
-        
-        # Read the file
-        df = self._read_file(file_path)
-        
-        # Generate table name if not provided
-        if table_name is None:
-            base_name = os.path.splitext(os.path.basename(file_path))[0]
-            table_name = self._sanitize_table_name(base_name)
-        else:
-            table_name = self._sanitize_table_name(table_name)
-        
-        # Convert to SQLite
-        try:
-            with sqlite3.connect(db_path) as conn:
-                df.to_sql(table_name, conn, if_exists="replace", index=False)
-            return db_path
-        except Exception as e:
-            raise RuntimeError(f"Error converting file to SQLite: {str(e)}")
-    
-    def convert_multiple_files_to_sqlite(self, file_paths: List[str], 
+    def convert_multiple_files_to_sqlite(self, project_uuid: str, file_paths: List[str], 
                                        output_db_path: Optional[str] = None,
                                        table_names: Optional[List[str]] = None) -> str:
         """Convert multiple files to a single SQLite database with separate tables."""
@@ -105,12 +81,12 @@ class SQLiteHandler:
         
         # Generate output database path if not provided
         if output_db_path is None:
-            project_uuid = str(uuid.uuid4())
+            print(f"Project already exists, using the existing database: {project_uuid}")
             output_db_path = os.path.join(self.upload_dir, f"{project_uuid}.sqlite")
         
         # Remove existing database if it exists
         if os.path.exists(output_db_path):
-            os.remove(output_db_path)
+            return output_db_path
         
         try:
             with sqlite3.connect(output_db_path) as conn:
@@ -178,28 +154,6 @@ class SQLiteHandler:
         # In a production environment, you might want to implement this
         pass
 
-
-# Convenience functions for backward compatibility
-def convert_csv_to_sqlite(file_path: str) -> str:
-    """Convert a single CSV file to SQLite database."""
-    handler = SQLiteHandler()
-    return handler.convert_single_file_to_sqlite(file_path)
-
-
-def convert_multiple_csvs_to_sqlite(file_paths: List[str], 
-                                   output_db_path: Optional[str] = None,
-                                   table_names: Optional[List[str]] = None) -> str:
-    """Convert multiple CSV files to a single SQLite database."""
-    handler = SQLiteHandler()
-    return handler.convert_multiple_files_to_sqlite(file_paths, output_db_path, table_names)
-
-
-async def execute_query(request: QueryRequest):
-    """Execute a query on a database file."""
-    handler = SQLiteHandler()
-    db_path = os.path.join(UPLOAD_DIR, f"{request.file_uuid}.sqlite")
-    results = handler.execute_query(db_path, request.query)
-    return {"results": results}
 
 def get_schema(db_path: str) -> str:
     """Get the schema of the database with sample data."""

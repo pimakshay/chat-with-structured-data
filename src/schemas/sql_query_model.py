@@ -21,3 +21,7 @@ class RelevantTable(BaseModel):
 class QueryParseResponse(BaseModel):
     is_relevant: bool
     relevant_tables: list[RelevantTable]
+
+class VisualizationTypeResponse(BaseModel):
+    visualization: str
+    visualization_reasoning: str
