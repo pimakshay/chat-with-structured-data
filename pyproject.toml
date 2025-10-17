@@ -1,0 +1,13 @@
+[project]
+name = "chat-with-structured-data"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ipykernel>=7.0.1",
+    "langchain-openai>=0.3.35",
+    "pandas>=2.3.3",
+    "pydantic>=2.12.2",
+    "pysqlite3>=0.5.4",
+]
